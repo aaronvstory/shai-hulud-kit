@@ -63,7 +63,7 @@ shai-hulud-kit/
 │   ├── audit_deps.{sh,bat}    ← Local pip-audit driver
 │   └── sandbox_install.{sh,bat} ← Isolated dep install
 ├── tests/
-│   └── test_detect_compromise.py  ← 78 property tests
+│   └── test_detect_compromise.py  ← 84 property tests
 ├── claude-code/
 │   ├── commands/hulud-kit.md    ← Slash command
 │   └── CLAUDE-snippet.md      ← Project CLAUDE.md addition

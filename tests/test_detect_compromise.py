@@ -721,6 +721,96 @@ class CompromisedNpmTests(_TempDirTestBase):
 
 
 # ============================================================================
+# Class 10b: NpmCaseInsensitiveTests
+# Locks in: npm names are case-insensitive on the registry, so the IOC
+# match must lowercase before lookup. A package.json that writes
+# '@CAP-JS/SQLite' must still hit the '@cap-js/sqlite' IOC entry.
+# ============================================================================
+class NpmCaseInsensitiveTests(_TempDirTestBase):
+    def test_canonicalize_npm_name_unit(self):
+        self.assertEqual(dc.canonicalize_npm_name("@CAP-JS/SQLite"), "@cap-js/sqlite")
+        self.assertEqual(dc.canonicalize_npm_name("MBT"), "mbt")
+        self.assertEqual(dc.canonicalize_npm_name("@ANTV/G2"), "@antv/g2")
+
+    def test_uppercase_scoped_package_matched(self):
+        root = self._mkdtemp()
+        (root / "package.json").write_text(json.dumps({
+            "name": "test",
+            "dependencies": {"@CAP-JS/SQLite": "2.2.2"}
+        }))
+        findings = dc.check_compromised_npm(root)
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].level, "ALERT")
+
+    def test_uppercase_bare_package_matched(self):
+        root = self._mkdtemp()
+        (root / "package.json").write_text(json.dumps({
+            "name": "test",
+            "dependencies": {"MBT": "1.2.48"}
+        }))
+        findings = dc.check_compromised_npm(root)
+        self.assertEqual(len(findings), 1)
+
+    def test_uppercase_in_lockfile_matched(self):
+        root = self._mkdtemp()
+        (root / "package-lock.json").write_text(json.dumps({
+            "name": "test", "lockfileVersion": 3,
+            "packages": {
+                "node_modules/@CAP-JS/SQLite": {
+                    "version": "2.2.2", "resolved": "..."
+                }
+            }
+        }))
+        findings = dc.check_compromised_npm(root)
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].level, "ALERT")
+
+
+# ============================================================================
+# Class 7c: PersistenceHashWithoutKeywordTests
+# Locks in: hash-based detection at keyword-guarded persistence paths
+# (.claude/settings.json, .vscode/tasks.json) does NOT depend on the
+# trigger keyword being present. A known-malicious file dropped at
+# settings.json without 'SessionStart_hook' must still ALERT via hash.
+# (CodeRabbit P1 nitpick on PR #1.)
+# ============================================================================
+class PersistenceHashWithoutKeywordTests(_TempDirTestBase):
+    def _patch_malicious_hashes(self, hashes: frozenset[str]) -> None:
+        original = dc.MALICIOUS_SHA256
+        dc.MALICIOUS_SHA256 = hashes
+        self.addCleanup(setattr, dc, "MALICIOUS_SHA256", original)
+
+    def test_known_hash_at_settings_without_keyword_still_alerts(self):
+        """The bug: keyword-guarded persistence-path entries early-out via
+        `continue` when the keyword is missing, which previously also
+        skipped the hash check. After the fix, the hash check runs first
+        and survives the keyword early-exit."""
+        payload = b'{"model": "claude-3-5-sonnet"}\n'  # benign-looking
+        digest = hashlib.sha256(payload).hexdigest()
+        self._patch_malicious_hashes(frozenset({digest}))
+        root = self._mkdtemp()
+        (root / ".claude").mkdir()
+        (root / ".claude" / "settings.json").write_bytes(payload)
+        findings = dc.check_persistence_paths(root)
+        # No keyword → no suspicious_config finding; but the hash matches,
+        # so we MUST still get the known_malicious_hash ALERT.
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].type, "known_malicious_hash")
+        self.assertEqual(findings[0].level, "ALERT")
+
+    def test_known_hash_at_vscode_tasks_without_keyword_still_alerts(self):
+        payload = b'{"version":"2.0.0","tasks":[]}\n'
+        digest = hashlib.sha256(payload).hexdigest()
+        self._patch_malicious_hashes(frozenset({digest}))
+        root = self._mkdtemp()
+        (root / ".vscode").mkdir()
+        (root / ".vscode" / "tasks.json").write_bytes(payload)
+        findings = dc.check_persistence_paths(root)
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].type, "known_malicious_hash")
+
+
+# ============================================================================
 # Class 11 (NEW): SarifOutputTests
 # ============================================================================
 class SarifOutputTests(_TempDirTestBase):

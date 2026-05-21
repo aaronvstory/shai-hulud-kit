@@ -184,6 +184,20 @@ COMPROMISED_PYPI_CANONICAL: frozenset[str] = frozenset(
     canonicalize_name(n) for n in COMPROMISED_PYPI
 )
 
+
+def canonicalize_npm_name(name: str) -> str:
+    """npm package names are case-insensitive on the registry — lowercase
+    is the canonical form. (Unlike PyPI, npm does not collapse '-_.' runs;
+    those characters are independently meaningful in the name.)"""
+    return name.lower()
+
+
+# Pre-canonicalize the npm IOC set so a lookup is O(1) even on lowercased
+# names from a package-lock that uppercases the scope or org segment.
+COMPROMISED_NPM_CANONICAL: dict[str, frozenset[str]] = {
+    canonicalize_npm_name(k): v for k, v in COMPROMISED_NPM.items()
+}
+
 # Match a PEP 508 requirement line and capture the project name only.
 # Group 1 = name. The remainder (extras, version spec, marker, direct ref,
 # trailing comment) is intentionally not captured — once the name is in hand
@@ -237,13 +251,12 @@ PTH_ALLOWLIST_SHA256: frozenset[str] = frozenset({
 })
 
 # Filenames that are categorically legitimate shims when matched against
-# the SHA256 allowlist. Defense in depth — even if an attacker dropped
-# a file with a colliding hash, an unexpected filename still alerts.
+# the SHA256 or content-pattern allowlist. Defense in depth — even if an
+# attacker dropped a file with a colliding hash, an unexpected filename
+# still alerts. Keep this list narrow: only add a name when at least one
+# hash or content pattern actually exists for it.
 PTH_ALLOWLIST_NAMES: frozenset[str] = frozenset({
     "distutils-precedence.pth",
-    "_virtualenv.pth",
-    "setuptools.pth",
-    "PyQt5.pth", "PyQt6.pth",
 })
 
 # Content-pattern allowlist — durable fallback for files whose SHA256 isn't
@@ -392,8 +405,9 @@ def check_compromised_npm(root: Path) -> list[Finding]:
                 if not isinstance(deps, dict):
                     continue
                 for pkg, ver_spec in deps.items():
-                    if pkg in COMPROMISED_NPM:
-                        bad_versions = COMPROMISED_NPM[pkg]
+                    canonical = canonicalize_npm_name(pkg)
+                    if canonical in COMPROMISED_NPM_CANONICAL:
+                        bad_versions = COMPROMISED_NPM_CANONICAL[canonical]
                         # If specific versions are tracked, check the spec
                         if bad_versions:
                             ver_str = str(ver_spec).strip().lstrip("^~>=<")
@@ -417,10 +431,13 @@ def check_compromised_npm(root: Path) -> list[Finding]:
                 if not isinstance(pkg_info, dict):
                     continue
                 name = pkg_info.get("name") or _name_from_lock_key(key)
-                if not name or name not in COMPROMISED_NPM:
+                if not name:
+                    continue
+                canonical = canonicalize_npm_name(name)
+                if canonical not in COMPROMISED_NPM_CANONICAL:
                     continue
                 version = pkg_info.get("version", "")
-                bad_versions = COMPROMISED_NPM[name]
+                bad_versions = COMPROMISED_NPM_CANONICAL[canonical]
                 if not bad_versions or version in bad_versions:
                     _add_npm_finding(findings, name, version, path,
                                      "package-lock", "locked_to_bad_version")
@@ -618,6 +635,13 @@ def check_persistence_paths(root: Path) -> list[Finding]:
         target = root / rel_path
         if not target.exists():
             continue
+        # Hash-based check runs independently of the keyword filter so a
+        # known-bad payload dropped at one of the keyword-guarded paths
+        # (.claude/settings.json, .vscode/tasks.json) is still caught when
+        # the file lacks the legacy trigger keyword.
+        hash_finding = _hash_persistence_file(target)
+        if hash_finding is not None:
+            findings.append(hash_finding)
         if content_keyword is not None:
             try:
                 content = target.read_text(encoding="utf-8", errors="replace")
@@ -639,9 +663,6 @@ def check_persistence_paths(root: Path) -> list[Finding]:
                 message=f"{description}: {target}",
                 details={"file": str(target), "description": description},
             ))
-        hash_finding = _hash_persistence_file(target)
-        if hash_finding is not None:
-            findings.append(hash_finding)
     return findings
 
 
