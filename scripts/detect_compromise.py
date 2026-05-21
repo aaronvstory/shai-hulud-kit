@@ -202,10 +202,12 @@ COMPROMISED_NPM_CANONICAL: dict[str, frozenset[str]] = {
 # Group 1 = name. The remainder (extras, version spec, marker, direct ref,
 # trailing comment) is intentionally not captured — once the name is in hand
 # we only need to canonicalize and compare.
+# Tolerates empty `[]` extras (bypass observed during review) and whitespace
+# anywhere between name / extras / spec.
 _REQ_NAME_RE = re.compile(
     r"^\s*([A-Za-z0-9][A-Za-z0-9._\-]*)\s*"
-    r"(?:\[[^\]]+\])?\s*"
-    r"(?:[=<>!~;@#].*)?$"
+    r"(?:\[[^\]]*\])?\s*"
+    r"(?:[=<>!~;@#].*|\#.*)?$"
 )
 
 

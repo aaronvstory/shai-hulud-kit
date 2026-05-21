@@ -347,6 +347,14 @@ class PEP503CanonicalizationTests(_TempDirTestBase):
         self.assertEqual(f[0].details["package"], "Fast_Agent.MCP")
         self.assertEqual(f[0].details["canonical"], "fast-agent-mcp")
 
+    def test_empty_extras_bypass_closed(self):
+        """Self-review caught: `fast-agent-mcp[]` was a bypass because the
+        extras group required `[^\\]]+` (one or more), so empty `[]` left
+        the regex unable to match the remainder. Relaxed to `[^\\]]*`."""
+        f = self._scan_req("fast-agent-mcp[]\n")
+        self.assertEqual(len(f), 1)
+        self.assertEqual(f[0].level, "ALERT")
+
 
 # ============================================================================
 # Class 5: WorkflowScanCoverageTests
