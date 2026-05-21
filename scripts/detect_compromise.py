@@ -250,6 +250,8 @@ PTH_ALLOWLIST_EXACT: frozenset[str] = frozenset({
 PTH_ALLOWLIST_SHA256: frozenset[str] = frozenset({
     # setuptools distutils-precedence.pth, observed forms
     "2f70c2fa9227e9db9348215d9c7b246d2786aac7516f86d71a5952c7c225aa16",
+    # virtualenv 20.x _virtualenv.pth — content is literally `import _virtualenv`
+    "69ac3d8f27e679c81b94ab30b3b56e9cd138219b1ba94a1fa3606d5a76a1433d",
 })
 
 # Filenames that are categorically legitimate shims when matched against
@@ -259,6 +261,7 @@ PTH_ALLOWLIST_SHA256: frozenset[str] = frozenset({
 # hash or content pattern actually exists for it.
 PTH_ALLOWLIST_NAMES: frozenset[str] = frozenset({
     "distutils-precedence.pth",
+    "_virtualenv.pth",
 })
 
 # Content-pattern allowlist — durable fallback for files whose SHA256 isn't

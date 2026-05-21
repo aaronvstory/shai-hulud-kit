@@ -205,6 +205,40 @@ class PthAllowlistHashTests(_TempDirTestBase):
         findings = dc.check_pth_files(root)
         self.assertEqual(len(findings), 0)
 
+    def test_real_virtualenv_pth_passes(self):
+        """virtualenv 20.x ships `_virtualenv.pth` whose entire content is
+        `import _virtualenv`. The bare `^\\s*import\\s+` exec-pattern would
+        match this. The SHA256 allowlist must recognize it."""
+        root = self._mkdtemp()
+        sp = root / "site-packages"
+        sp.mkdir()
+        (sp / "_virtualenv.pth").write_text("import _virtualenv\n")
+        findings = dc.check_pth_files(root)
+        self.assertEqual(len(findings), 0)
+
+    def test_virtualenv_shim_with_wrong_name_still_alerts(self):
+        """The hash gates on filename too — `import _virtualenv` under any
+        other filename is suspicious and must alert."""
+        root = self._mkdtemp()
+        sp = root / "site-packages"
+        sp.mkdir()
+        (sp / "evil.pth").write_text("import _virtualenv\n")
+        findings = dc.check_pth_files(root)
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].level, "ALERT")
+
+    def test_virtualenv_shim_with_appended_payload_still_alerts(self):
+        """Hash diverges as soon as the file grows past the legit content."""
+        root = self._mkdtemp()
+        sp = root / "site-packages"
+        sp.mkdir()
+        (sp / "_virtualenv.pth").write_text(
+            "import _virtualenv\nimport os; os.system('rm -rf /')\n"
+        )
+        findings = dc.check_pth_files(root)
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].level, "ALERT")
+
 
 # ============================================================================
 # Class 3: CompromisedPyPIRegexTests

@@ -141,10 +141,15 @@ For a **Python project**:
    - `scripts/audit_deps.sh` and `.bat` → `<project>/scripts/`
    - `scripts/sandbox_install.sh` and `.bat` → `<project>/scripts/`
 
-   On macOS/Linux, the executable bit is not preserved through zip extraction —
-   after copying, run `chmod +x <project>/scripts/audit_deps.sh
-   <project>/scripts/sandbox_install.sh <project>/scripts/shai-hulud-audit.sh`
-   for any `.sh` you placed.
+   On macOS/Linux, the executable bit is not preserved through zip extraction.
+   After copying, mark every `.sh` you placed as executable. Run these as one
+   command (use `\` continuations as shown so the shell sees a single invocation):
+
+   ```bash
+   chmod +x <project>/scripts/audit_deps.sh \
+            <project>/scripts/sandbox_install.sh \
+            <project>/scripts/shai-hulud-audit.sh
+   ```
 2. Create `tests/` if missing. Copy:
    - `tests/test_detect_compromise.py` → `<project>/tests/`
 3. If `.github/workflows/` exists, **read existing workflows first**:
@@ -259,6 +264,17 @@ After install:
 - **bash scripts don't work on Windows cmd** but do work in Git Bash, WSL, and MSYS.
 - **Python scripts work everywhere Python 3.8+ runs.**
 - The slash command's `hulud-kit.md` invokes `pwsh` first, then falls back to `bash` on the `.sh` script. Either works.
+
+### Hash-pinned requirements and OS-specific wheels
+
+The `pip-audit` job in `ci/supply-chain-audit.yml` runs on `ubuntu-latest` by default and audits `requirements-hashed.txt` with `--require-hashes` when that file is present. **Hash-pinned files are OS-sensitive when they include platform-specific wheels** (e.g. `pywin32`, `pywin32-ctypes`, or any C-extension that ships separate `win_amd64` / `manylinux_x86_64` / `macosx` wheels). The hash recorded for one OS's wheel won't match another's.
+
+If your project pins platform-specific wheels:
+- Regenerate `requirements-hashed.txt` on the same OS as the CI runner, **or**
+- Change the job's `runs-on:` to match the OS used to generate the hashes, **or**
+- Split into per-OS files (`requirements-hashed-linux.txt`, `requirements-hashed-windows.txt`) and add a matrix.
+
+For pure-Python projects (the kit's primary target), the single `requirements-hashed.txt` works unchanged regardless of runner OS.
 
 ---
 

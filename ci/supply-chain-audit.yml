@@ -32,9 +32,11 @@ jobs:
         run: |
           # Prefer hash-pinned requirements when available — pip's secure-install
           # guidance requires --require-hashes for all-or-nothing hash checking.
-          # The hashed-audit path is OS-agnostic for pure-Python deps, so it
-          # runs on whichever runner this job is scheduled on. Plain
-          # requirements.txt is the documented fallback.
+          # The hashed-audit path is OS-agnostic for pure-Python deps; if your
+          # project pins Windows-specific wheels (pywin32, etc.) in
+          # requirements-hashed.txt, regenerate it on the same OS the runner
+          # uses (ubuntu-latest by default) or change `runs-on` to match.
+          # See INTEGRATION.md § "Hash-pinned requirements and OS-specific wheels".
           if [ -f requirements-hashed.txt ]; then
             python -m pip_audit -r requirements-hashed.txt \
               --strict --require-hashes --progress-spinner off
