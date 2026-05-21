@@ -44,7 +44,7 @@ if (Test-Path $machineScript) {
     & $machineScript -Mode quick -Quiet
     if ($LASTEXITCODE -ge 2) {
         Write-Host "[pre-commit] machine audit FAILED (alerts present)" -ForegroundColor Red
-        Write-Host "Run '/pooptin quick' or '$machineScript -Mode quick' for details."
+        Write-Host "Run '/hulud-kit quick' or '$machineScript -Mode quick' for details."
         $failed = $true
     } elseif ($LASTEXITCODE -eq 1) {
         Write-Host "[pre-commit] machine audit has warnings (continuing)" -ForegroundColor Yellow

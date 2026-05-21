@@ -30,11 +30,12 @@ jobs:
 
       - name: Audit requirements
         run: |
-          # Audit hashed file with --require-hashes if present and
-          # platform-compatible. The platform gate is "are we on Windows?",
-          # not "does the file mention a Windows-only package?" — the latter
-          # is fragile if dep names change.
-          if [ -f requirements-hashed.txt ] && [ "${RUNNER_OS}" = "Windows" ]; then
+          # Prefer hash-pinned requirements when available — pip's secure-install
+          # guidance requires --require-hashes for all-or-nothing hash checking.
+          # The hashed-audit path is OS-agnostic for pure-Python deps, so it
+          # runs on whichever runner this job is scheduled on. Plain
+          # requirements.txt is the documented fallback.
+          if [ -f requirements-hashed.txt ]; then
             python -m pip_audit -r requirements-hashed.txt \
               --strict --require-hashes --progress-spinner off
           elif [ -f requirements.txt ]; then
@@ -86,17 +87,27 @@ jobs:
             VENV_PY="$VENV_DIR/bin/python"
             VENV_PIP="$VENV_DIR/bin/pip"
 
-            # Wheel-only first to avoid setup.py execution from sdists.
-            # Fall back to unconstrained install only if wheel-only fails
-            # (some packages have no wheel for Linux).
+            # Wheel-only by default — sdist installs can execute setup.py
+            # build hooks, which is exactly what this hardening lane tries
+            # to avoid. Set ALLOW_SDIST_AUDIT=1 in the workflow env to
+            # opt into the legacy fallback if a manifest legitimately
+            # requires sdist-only deps.
             if ! "$VENV_PIP" install --quiet --only-binary :all: -r "$req" 2>/dev/null; then
-              echo "  wheel-only install failed; falling back to allow sdist"
-              "$VENV_PIP" install --quiet -r "$req" 2>/dev/null || {
-                echo "  install failed entirely for $req; skipping audit"
+              if [ "${ALLOW_SDIST_AUDIT:-0}" = "1" ]; then
+                echo "  wheel-only install failed; ALLOW_SDIST_AUDIT=1 — falling back to allow sdist"
+                "$VENV_PIP" install --quiet -r "$req" 2>/dev/null || {
+                  echo "  install failed entirely for $req; skipping audit"
+                  rm -rf "$VENV_DIR"
+                  echo "::endgroup::"
+                  continue
+                }
+              else
+                echo "  wheel-only install failed for $req — set ALLOW_SDIST_AUDIT=1 to allow sdist fallback"
                 rm -rf "$VENV_DIR"
                 echo "::endgroup::"
+                FAILED=1
                 continue
-              }
+              fi
             fi
 
             if ! "$VENV_PY" -m pip_audit --strict; then

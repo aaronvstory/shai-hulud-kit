@@ -41,7 +41,7 @@ Add to the above:
 - **Set up Dependabot** on every project (5 min per repo).
 - **Enable the CI workflow** from `ci/supply-chain-audit.yml`.
 - **Subscribe to OSV-Vulns** mailing list or RSS for high-severity advisories.
-- **Run `/pooptin deep` weekly.** Friday afternoon while reviewing the week is a good time.
+- **Run `/hulud-kit deep` weekly.** Friday afternoon while reviewing the week is a good time.
 
 ## OS-specific notes
 

@@ -3,13 +3,13 @@ description: Supply chain audit — scans installed packages and project files f
 argument-hint: "[quick|project|deep|status] [--deep] [--json]"
 ---
 
-# /pooptin — Supply Chain Audit
+# /hulud-kit — Supply Chain Audit
 
 You are running the Shai-Hulud / TeamPCP supply chain audit. This protects the user from the active npm + PyPI compromise campaign.
 
 ## What to do
 
-Parse the user's argument (after `/pooptin`):
+Parse the user's argument (after `/hulud-kit`):
 
 | Arg | Behavior |
 |---|---|

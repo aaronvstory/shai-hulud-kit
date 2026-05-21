@@ -4,7 +4,7 @@ A drop-in supply chain audit + hardening toolkit for the active **Shai-Hulud / T
 
 ## What this is
 
-One folder. Point Claude Code at it. Claude Code reads `INTEGRATION.md` and installs the right pieces for your setup — whether you have nothing yet, partial hardening already, or just want the `/pooptin` slash command globally.
+One folder. Point Claude Code at it. Claude Code reads `INTEGRATION.md` and installs the right pieces for your setup — whether you have nothing yet, partial hardening already, or just want the `/hulud-kit` slash command globally.
 
 Two layers, both included:
 
@@ -24,7 +24,7 @@ Two layers, both included:
 Drop this folder somewhere accessible. Then in any Claude Code session:
 
 ```
-look at /path/to/shai-hulud-kit and integrate it. set up /pooptin globally
+look at /path/to/shai-hulud-kit and integrate it. set up /hulud-kit globally
 and also wire the project tools into the current project.
 ```
 
@@ -41,10 +41,10 @@ relevant for my system.
 
 After install:
 
-- **`/pooptin`** slash command in Claude Code (any project) — invokes the machine audit
-- **`/pooptin quick`** — current-project scan, <30s, runs on pre-commit
-- **`/pooptin deep`** — full machine scan including env vars, credential file inventory
-- **`/pooptin status`** — last scan summary
+- **`/hulud-kit`** slash command in Claude Code (any project) — invokes the machine audit
+- **`/hulud-kit quick`** — current-project scan, <30s, runs on pre-commit
+- **`/hulud-kit deep`** — full machine scan including env vars, credential file inventory
+- **`/hulud-kit status`** — last scan summary
 - **Pre-commit hook** that blocks commits on critical findings
 - **GitHub Actions workflow** with pip-audit + per-manifest ephemeral venv + osv-scanner
 - **Dependabot config** with weekly grouped + immediate security PRs
@@ -63,9 +63,9 @@ shai-hulud-kit/
 │   ├── audit_deps.{sh,bat}    ← Local pip-audit driver
 │   └── sandbox_install.{sh,bat} ← Isolated dep install
 ├── tests/
-│   └── test_detect_compromise.py  ← 44 property tests
+│   └── test_detect_compromise.py  ← 78 property tests
 ├── claude-code/
-│   ├── commands/pooptin.md    ← Slash command
+│   ├── commands/hulud-kit.md    ← Slash command
 │   └── CLAUDE-snippet.md      ← Project CLAUDE.md addition
 ├── git-hooks/
 │   ├── pre-commit             ← bash version
@@ -165,4 +165,4 @@ Pre-commit hook blocks on exit code 2.
 
 ## License
 
-Public domain / use as you wish. No warranty.
+MIT — see [LICENSE](LICENSE). Use as you wish, no warranty.

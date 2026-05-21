@@ -59,7 +59,7 @@ if [[ -f "$HOME/.shai-hulud/shai-hulud-audit.sh" ]]; then
     code=$?
     if [[ $code -ge 2 ]]; then
         echo -e "${RED}[pre-commit] machine audit FAILED (alerts present)${RESET}" >&2
-        echo "Run '/pooptin quick' or '$MACHINE_SCRIPT --mode quick' for details." >&2
+        echo "Run '/hulud-kit quick' or '$MACHINE_SCRIPT --mode quick' for details." >&2
         FAILED=1
     elif [[ $code -eq 1 ]]; then
         echo -e "${YELLOW}[pre-commit] machine audit has warnings (continuing)${RESET}" >&2

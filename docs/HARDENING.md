@@ -56,7 +56,7 @@ Catches PEP 508 dep declarations against known-compromised list, `.pth` exec, wo
 
 Or via slash command:
 ```
-/pooptin quick
+/hulud-kit quick
 ```
 
 ## §3 Adding a new dependency

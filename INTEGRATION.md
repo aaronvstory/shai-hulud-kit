@@ -12,7 +12,7 @@ A defensive toolkit for the active **Shai-Hulud / TeamPCP** supply chain campaig
 - **Project-level Python audit** (`scripts/detect_compromise.py` v1.1) — in-tree scanner with 9 checks: PEP 508 regex, npm package@version matching, `.pth` exec, workflow tamper, git remote C2 + IP, `.claude/` and `.vscode/` persistence detection, spoofed commit author, campaign string markers, self-check. SARIF 2.1.0 output for GitHub Security tab.
 - **CI workflow templates** (`ci/`) — pip-audit + per-manifest ephemeral venv + osv-scanner + SARIF upload
 - **Pre-commit hooks** (`git-hooks/`) — block commits on critical findings
-- **Slash command** (`claude-code/commands/pooptin.md`) — `/pooptin` invocation from any Claude Code session
+- **Slash command** (`claude-code/commands/hulud-kit.md`) — `/hulud-kit` invocation from any Claude Code session
 - **Docs** (`docs/`) — threat model, hardening guide, IOC checklist, single-dev hygiene
 
 Two layers solving two different problems. Don't pick one — they're complementary.
@@ -27,7 +27,7 @@ The user pointed you here. What did they say?
 
 | User said | Plan |
 |---|---|
-| "Install globally" or "make /pooptin work everywhere" | Global install only (Section 4A) |
+| "Install globally" or "make /hulud-kit work everywhere" | Global install only (Section 4A) |
 | "Add to this project" or "wire this up" | Project install only (Section 4B) |
 | "Both" or "set up everything" | Both (Section 4A then 4B) |
 | "Share with a friend" or "I have nothing" | Full install + verification (Section 4A + 4B + 4C) |
@@ -73,11 +73,11 @@ Look in the project directory for:
 
 Before installing anything, tell the user what you found and what you're about to do. Example:
 
-> I see you're on macOS, working in a Python project at `~/work/myapp` with a git repo and existing CI workflows. You don't have `/pooptin` installed globally yet. Here's what I propose:
+> I see you're on macOS, working in a Python project at `~/work/myapp` with a git repo and existing CI workflows. You don't have `/hulud-kit` installed globally yet. Here's what I propose:
 >
 > **Global:**
 > - Install `shai-hulud-audit.sh` to `~/.shai-hulud/`
-> - Install `/pooptin` slash command to `~/.claude/commands/`
+> - Install `/hulud-kit` slash command to `~/.claude/commands/`
 >
 > **Project (`~/work/myapp`):**
 > - Add `scripts/detect_compromise.py` and its tests
@@ -128,8 +128,8 @@ Steps:
    - macOS/Linux without `pwsh`: `scripts/shai-hulud-audit.sh` (chmod +x)
    - Optionally copy both — they coexist.
 3. Create `~/.claude/commands/` if missing.
-4. Copy `claude-code/commands/pooptin.md` to `~/.claude/commands/pooptin.md`.
-5. Verify: run `/pooptin status` (it'll say "no prior scan found" — that's correct on first install).
+4. Copy `claude-code/commands/hulud-kit.md` to `~/.claude/commands/hulud-kit.md`.
+5. Verify: run `/hulud-kit status` (it'll say "no prior scan found" — that's correct on first install).
 
 ### 4B. Project install (project-level)
 
@@ -140,6 +140,11 @@ For a **Python project**:
    - `scripts/detect_compromise.py` → `<project>/scripts/`
    - `scripts/audit_deps.sh` and `.bat` → `<project>/scripts/`
    - `scripts/sandbox_install.sh` and `.bat` → `<project>/scripts/`
+
+   On macOS/Linux, the executable bit is not preserved through zip extraction —
+   after copying, run `chmod +x <project>/scripts/audit_deps.sh
+   <project>/scripts/sandbox_install.sh <project>/scripts/shai-hulud-audit.sh`
+   for any `.sh` you placed.
 2. Create `tests/` if missing. Copy:
    - `tests/test_detect_compromise.py` → `<project>/tests/`
 3. If `.github/workflows/` exists, **read existing workflows first**:
@@ -171,7 +176,9 @@ For a **non-project directory**: don't install project files. Suggest global-onl
 
 After install:
 1. Tell the user what was created/modified — concrete list, paths.
-2. Suggest a verification command: `/pooptin quick` (global) or `./scripts/detect_compromise.py` (project).
+2. Tell the user how to verify the install. The user can type `/hulud-kit status` in Claude Code to confirm the slash command resolves, then `/hulud-kit quick` for an actual scan. For the project scanner, the user runs `python scripts/detect_compromise.py --root .`.
+
+   Note: `/hulud-kit` is a user-typed slash command. Claude Code (this assistant) can invoke the underlying audit script directly via Bash/PowerShell during verification, but the slash command itself is a user-side trigger.
 3. Show the next-actions list:
    - Add user's GitHub username to `CLAUDE.md` if they want exfil-repo checks
    - Generate `requirements-hashed.txt` if the project doesn't have one (command in `docs/HARDENING.md`)
@@ -221,7 +228,7 @@ After install:
 ### `claude-code/`
 | File | Purpose |
 |---|---|
-| `commands/pooptin.md` | Claude Code slash command. Goes to `~/.claude/commands/pooptin.md` |
+| `commands/hulud-kit.md` | Claude Code slash command. Goes to `~/.claude/commands/hulud-kit.md` |
 | `CLAUDE-snippet.md` | Block to append to project `CLAUDE.md` files |
 
 ### `git-hooks/`
@@ -251,7 +258,7 @@ After install:
 - **PowerShell scripts work on macOS/Linux** if `pwsh` (PowerShell 7+) is installed. They use no Windows-only cmdlets except the Sysmon log read in deep mode (which gracefully skips on other OSes).
 - **bash scripts don't work on Windows cmd** but do work in Git Bash, WSL, and MSYS.
 - **Python scripts work everywhere Python 3.8+ runs.**
-- The slash command's `pooptin.md` invokes `pwsh` first, then falls back to `bash` on the `.sh` script. Either works.
+- The slash command's `hulud-kit.md` invokes `pwsh` first, then falls back to `bash` on the `.sh` script. Either works.
 
 ---
 

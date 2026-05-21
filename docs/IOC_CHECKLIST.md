@@ -6,7 +6,7 @@ What to check if you suspect compromise. Run these in order — earlier checks a
 
 Use this checklist if **any** of the following are true:
 
-- `/pooptin` exited with code 2 (alerts)
+- `/hulud-kit` exited with code 2 (alerts)
 - `detect_compromise.py` flagged a compromised package, `.pth` file, or workflow
 - You installed a package from a known-compromised version (verify on OSV.dev)
 - You see one of these signs on your machine:
