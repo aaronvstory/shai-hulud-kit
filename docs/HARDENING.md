@@ -28,6 +28,26 @@ pip-compile --generate-hashes --output-file=requirements-hashed-windows.txt requ
 pip install --require-hashes -r requirements-hashed.txt
 ```
 
+### Naming convention for split requirements files
+
+Both the project scanner (`scripts/detect_compromise.py`) and the pre-commit
+skip pattern look for files matching `requirements*.txt` at any depth. If you
+split deps across multiple files, use **flat names**, not a `requirements/`
+subdirectory:
+
+| ✅ Picked up | ❌ Missed |
+|---|---|
+| `requirements.txt` | `requirements/base.txt` |
+| `requirements-dev.txt` | `requirements/dev.txt` |
+| `requirements-prod.txt` | `requirements/prod.txt` |
+| `requirements-hashed.txt` | `deps/requirements.txt` |
+
+The `requirements/<env>.txt` layout is a popular Django/pip convention, but
+the kit's scanner uses `rglob("requirements*.txt")` — file *name* matching,
+not directory matching. If you already use the subfolder layout, either rename
+to the flat convention or add explicit globs to your CI workflow / scanner
+config. (A future kit version may switch to a configurable include list.)
+
 ## §2 Daily audit
 
 ### Quick local audit
