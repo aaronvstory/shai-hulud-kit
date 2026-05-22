@@ -1,12 +1,18 @@
 name: Supply Chain Audit
 
 on:
-  push:
-    branches: [main, master]
+  # PR-only: runs once when the PR opens and once per push to the PR branch.
+  # We deliberately do NOT trigger on push to main/master — that would re-run on
+  # every commit landing on the integration branch, doubling CI cost with no
+  # added signal (the PR already audited the same diff).
   pull_request:
+    # Skip drafts to keep the in-progress feedback loop fast.
+    types: [opened, synchronize, reopened, ready_for_review]
+  # Nightly catches advisories published since the last PR check.
   schedule:
-    # Nightly at 07:00 UTC — catches advisories published since last commit
     - cron: '0 7 * * *'
+  # Manual run-button for when you want to audit main without opening a PR.
+  workflow_dispatch:
 
 permissions:
   contents: read

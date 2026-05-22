@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # Pre-commit hook: Shai-Hulud / TeamPCP supply chain audit.
 #
-# Runs both:
-#   1. Project-level: scripts/detect_compromise.py (if present)
-#   2. Machine-level: ~/.shai-hulud/shai-hulud-audit.{sh,ps1} (if installed)
+# Default (fast, ~1-2s):
+#   - Project-level: scripts/detect_compromise.py (if present)
+#
+# Opt-in (slow, ~5min — kept out of commit path; runs in CI instead):
+#   - Machine-level: ~/.shai-hulud/shai-hulud-audit.{sh,ps1}
+#     Re-enable by exporting SHAI_HULUD_MACHINE_AUDIT=1 in your shell.
 #
 # Exits non-zero on alerts (commit blocked). Warnings are reported but don't block.
 #
@@ -25,10 +28,22 @@ RESET='\033[0m'
 
 FAILED=0
 
+# --- Skip scan when no dep-related files in this commit ---
+# Supply chain risk only materializes when dep manifests change. If this commit
+# touches only source code, the scan adds no signal and ~45s of latency.
+# Override: SHAI_HULUD_FORCE=1 to always scan.
+DEP_PATTERN='(^|/)(requirements[^/]*\.txt|package(-lock)?\.json|pnpm-lock\.yaml|yarn\.lock|pyproject\.toml|Pipfile(\.lock)?|poetry\.lock|uv\.lock|\.pth|\.github/workflows/.*\.ya?ml|\.claude/.*\.(js|mjs|json))$'
+if [[ "${SHAI_HULUD_FORCE:-0}" != "1" ]]; then
+    if ! git diff --cached --name-only | grep -Eq "$DEP_PATTERN"; then
+        echo -e "${GREEN}[pre-commit] no dep/workflow changes — skipping supply chain audit${RESET}" >&2
+        exit 0
+    fi
+fi
+
 # --- Project-level scan ---
 PROJECT_SCRIPT="$REPO_ROOT/scripts/detect_compromise.py"
 if [[ -f "$PROJECT_SCRIPT" ]]; then
-    echo "[pre-commit] running project audit..."
+    echo "[pre-commit] running project audit (dep/workflow files changed)..."
     if command -v python3 >/dev/null 2>&1; then
         PY=python3
     elif command -v python >/dev/null 2>&1; then
@@ -50,29 +65,34 @@ if [[ -f "$PROJECT_SCRIPT" ]]; then
     fi
 fi
 
-# --- Machine-level scan ---
-# Check for installed audit script. Use bash version on macOS/Linux, ps1 on Windows.
-if [[ -f "$HOME/.shai-hulud/shai-hulud-audit.sh" ]]; then
-    MACHINE_SCRIPT="$HOME/.shai-hulud/shai-hulud-audit.sh"
-    echo "[pre-commit] running machine audit (quick mode)..."
-    "$MACHINE_SCRIPT" --mode quick --quiet
-    code=$?
-    if [[ $code -ge 2 ]]; then
-        echo -e "${RED}[pre-commit] machine audit FAILED (alerts present)${RESET}" >&2
-        echo "Run '/hulud-kit quick' or '$MACHINE_SCRIPT --mode quick' for details." >&2
-        FAILED=1
-    elif [[ $code -eq 1 ]]; then
-        echo -e "${YELLOW}[pre-commit] machine audit has warnings (continuing)${RESET}" >&2
-    fi
-elif command -v pwsh >/dev/null 2>&1 && [[ -f "$HOME/.shai-hulud/shai-hulud-audit.ps1" ]]; then
-    echo "[pre-commit] running machine audit via pwsh..."
-    pwsh -NoProfile -File "$HOME/.shai-hulud/shai-hulud-audit.ps1" -Mode quick -Quiet
-    code=$?
-    if [[ $code -ge 2 ]]; then
-        echo -e "${RED}[pre-commit] machine audit FAILED (alerts present)${RESET}" >&2
-        FAILED=1
-    elif [[ $code -eq 1 ]]; then
-        echo -e "${YELLOW}[pre-commit] machine audit has warnings (continuing)${RESET}" >&2
+# --- Machine-level scan: DISABLED on pre-commit (too slow: ~5min/commit) ---
+# Machine-wide OSV.dev round-trips are kept out of the commit path. They still
+# run in CI (.github/workflows/supply-chain-audit.yml: PR + nightly) and
+# you can invoke them manually anytime with `/hulud-kit quick` in Claude Code.
+# To re-enable here, set SHAI_HULUD_MACHINE_AUDIT=1 in your shell.
+if [[ "${SHAI_HULUD_MACHINE_AUDIT:-0}" = "1" ]]; then
+    if [[ -f "$HOME/.shai-hulud/shai-hulud-audit.sh" ]]; then
+        MACHINE_SCRIPT="$HOME/.shai-hulud/shai-hulud-audit.sh"
+        echo "[pre-commit] running machine audit (quick mode)..."
+        "$MACHINE_SCRIPT" --mode quick --quiet
+        code=$?
+        if [[ $code -ge 2 ]]; then
+            echo -e "${RED}[pre-commit] machine audit FAILED (alerts present)${RESET}" >&2
+            echo "Run '/hulud-kit quick' or '$MACHINE_SCRIPT --mode quick' for details." >&2
+            FAILED=1
+        elif [[ $code -eq 1 ]]; then
+            echo -e "${YELLOW}[pre-commit] machine audit has warnings (continuing)${RESET}" >&2
+        fi
+    elif command -v pwsh >/dev/null 2>&1 && [[ -f "$HOME/.shai-hulud/shai-hulud-audit.ps1" ]]; then
+        echo "[pre-commit] running machine audit via pwsh..."
+        pwsh -NoProfile -File "$HOME/.shai-hulud/shai-hulud-audit.ps1" -Mode quick -Quiet
+        code=$?
+        if [[ $code -ge 2 ]]; then
+            echo -e "${RED}[pre-commit] machine audit FAILED (alerts present)${RESET}" >&2
+            FAILED=1
+        elif [[ $code -eq 1 ]]; then
+            echo -e "${YELLOW}[pre-commit] machine audit has warnings (continuing)${RESET}" >&2
+        fi
     fi
 fi
 

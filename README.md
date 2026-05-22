@@ -42,11 +42,12 @@ relevant for my system.
 After install:
 
 - **`/hulud-kit`** slash command in Claude Code (any project) — invokes the machine audit
-- **`/hulud-kit quick`** — current-project scan, <30s, runs on pre-commit
+- **`/hulud-kit quick`** — current-project scan, <30s
 - **`/hulud-kit deep`** — full machine scan including env vars, credential file inventory
 - **`/hulud-kit status`** — last scan summary
-- **Pre-commit hook** that blocks commits on critical findings
-- **GitHub Actions workflow** with pip-audit + per-manifest ephemeral venv + osv-scanner
+- **Smart pre-commit hook** — skips the scan unless dep manifests / workflows / `.claude/` files actually change in the commit, so source-only commits stay sub-second. Blocks commits on critical findings.
+- **Safe install wrappers** (`scripts/safe_install.{sh,bat}`) — wrap `pip install` / `npm install` and audit the project immediately after install, which is when malicious post-install scripts execute.
+- **GitHub Actions workflow** with pip-audit + per-manifest ephemeral venv + osv-scanner. Triggers on PR (open + sync) + nightly + manual dispatch — not on every push to main, so PRs aren't re-audited after merge.
 - **Dependabot config** with weekly grouped + immediate security PRs
 - **4 docs** for threat model, hardening, IOC response, and solo-dev hygiene
 
@@ -61,7 +62,8 @@ shai-hulud-kit/
 │   ├── shai-hulud-audit.sh    ← Machine audit (bash, macOS/Linux)
 │   ├── detect_compromise.py   ← Project audit (Python, all OS)
 │   ├── audit_deps.{sh,bat}    ← Local pip-audit driver
-│   └── sandbox_install.{sh,bat} ← Isolated dep install
+│   ├── sandbox_install.{sh,bat} ← Isolated dep install
+│   └── safe_install.{sh,bat}  ← Wrap `pip install` / `npm install` with post-install audit
 ├── tests/
 │   └── test_detect_compromise.py  ← 84 property tests
 ├── claude-code/
@@ -132,6 +134,11 @@ chmod +x <your-repo>/.git/hooks/pre-commit
 # Windows (PowerShell variant)
 Copy-Item git-hooks/pre-commit.ps1 <your-repo>/.git/hooks/pre-commit.ps1
 ```
+
+**Override knobs:**
+
+- `SHAI_HULUD_FORCE=1` — run the scan even when no dep/workflow files changed in this commit (default skips that case for speed).
+- `SHAI_HULUD_MACHINE_AUDIT=1` — also run the slow machine-wide OSV.dev scan during pre-commit. Off by default (~5min); enable if you specifically want commit-time machine-level coverage.
 
 ## Threat context (late May 2026)
 
