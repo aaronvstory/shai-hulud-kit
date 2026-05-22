@@ -19,23 +19,55 @@ Two layers, both included:
 - Spoofed git commit author detection
 - SARIF 2.1.0 output — CI workflow uploads to GitHub Security tab
 
-## Quickstart for the user
+## Quickstart
 
-Drop this folder somewhere accessible. Then in any Claude Code session:
+### Fresh machine — install via Claude Code in one prompt
+
+Paste this exact prompt into Claude Code (any directory, any project). It
+clones this repo, installs the global slash command + machine audit, and
+stops. **No project files are modified. No machine scan runs during install.**
 
 ```
-look at /path/to/shai-hulud-kit and integrate it. set up /hulud-kit globally
+Clone https://github.com/aaronvstory/shai-hulud-kit into a temp directory,
+read its README.md and INTEGRATION.md, then install hulud-kit GLOBALLY with
+sensible defaults for my OS.
+
+Hard rules:
+- Do NOT modify any project repo. Only write to ~/.shai-hulud/ and
+  ~/.claude/commands/ (or the Windows equivalents).
+- Do NOT run a broad machine scan during install. Just place the files.
+- Do NOT install per-repo tooling unless I explicitly point you at a repo
+  in a later message.
+- After install, verify by running `/hulud-kit status` (should say
+  "No prior scan found" on first install — that's correct).
+
+Tell me what was placed and where, then stop.
+```
+
+That's it. Once it's done, type `/hulud-kit quick` whenever you want an
+actual scan (~30s). Type `/hulud-kit deep` for the full machine scan
+including env vars + dev directories (~2-5min).
+
+### Already cloned locally — `cd` into the repo first
+
+```
+look at this directory and integrate hulud-kit. set up /hulud-kit globally
 and also wire the project tools into the current project.
 ```
 
 Claude Code will read `INTEGRATION.md`, assess your OS / project type / existing tools, and install the right pieces. It won't overwrite anything without asking.
 
-For a friend starting from scratch:
+### Per-repo install (when you're in a project and want commit-time + CI protection)
+
+Inside a project directory:
 
 ```
-look at /path/to/shai-hulud-kit. i have nothing set up. install everything
-relevant for my system.
+install hulud-kit project guardrails into this repo. show me what you'll
+change before touching any file.
 ```
+
+This adds the in-tree scanner, pre-commit hook, GitHub Actions workflow,
+and `safe_install` wrappers. See **What you get** below for the full list.
 
 ## What you get
 
