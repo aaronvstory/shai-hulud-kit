@@ -9,7 +9,7 @@ One folder. Point Claude Code at it. Claude Code reads `INTEGRATION.md` and inst
 Two layers, both included:
 
 - **Machine-level audit** (`scripts/shai-hulud-audit.{ps1,sh}`) — scans installed packages anywhere on your machine, queries OSV.dev live, checks system IOCs (DNS, env vars, git anomalies, GitHub exfil repos).
-- **Project-level audit** (`scripts/detect_compromise.py` v1.1) — in-tree Python scanner with 9 checks: PEP 508 regex, npm package@version matching, `.pth` exec, workflow tamper, git remote C2 + IP, `.claude/`/`.vscode/` persistence detection, spoofed commit authors, campaign string markers, self-check. 64 property tests included. SARIF 2.1.0 output for GitHub Security tab.
+- **Project-level audit** (`scripts/detect_compromise.py` v1.1) — in-tree Python scanner with 9 checks: PEP 508 regex, npm package@version matching, `.pth` exec, workflow tamper, git remote C2 + IP, `.claude/`/`.vscode/` persistence detection, spoofed commit authors, campaign string markers, self-check. 88 property tests included. SARIF 2.1.0 output for GitHub Security tab.
 
 **New in v1.1** (uses [copyleftdev/mini-shai-hulud-dragnet](https://github.com/copyleftdev/mini-shai-hulud-dragnet) IOC data):
 - Detects TeamPCP's Claude Code persistence vector (`.claude/execution.js`, `.claude/setup.mjs`, `SessionStart_hook` in `.claude/settings.json`)
@@ -65,7 +65,7 @@ shai-hulud-kit/
 │   ├── sandbox_install.{sh,bat} ← Isolated dep install
 │   └── safe_install.{sh,bat}  ← Wrap `pip install` / `npm install` with post-install audit
 ├── tests/
-│   └── test_detect_compromise.py  ← 84 property tests
+│   └── test_detect_compromise.py  ← 88 property tests
 ├── claude-code/
 │   ├── commands/hulud-kit.md    ← Slash command
 │   └── CLAUDE-snippet.md      ← Project CLAUDE.md addition

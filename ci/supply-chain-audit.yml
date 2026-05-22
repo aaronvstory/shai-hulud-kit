@@ -100,10 +100,13 @@ jobs:
             # to avoid. Set ALLOW_SDIST_AUDIT=1 in the workflow env to
             # opt into the legacy fallback if a manifest legitimately
             # requires sdist-only deps.
-            if ! "$VENV_PIP" install --quiet --only-binary :all: -r "$req" 2>/dev/null; then
+            # Don't suppress stderr — when an install fails (missing wheel,
+            # resolver conflict, hash mismatch, etc.) pip's diagnostics are the
+            # primary debug signal. --quiet already silences normal output.
+            if ! "$VENV_PIP" install --quiet --only-binary :all: -r "$req"; then
               if [ "${ALLOW_SDIST_AUDIT:-0}" = "1" ]; then
                 echo "  wheel-only install failed; ALLOW_SDIST_AUDIT=1 — falling back to allow sdist"
-                "$VENV_PIP" install --quiet -r "$req" 2>/dev/null || {
+                "$VENV_PIP" install --quiet -r "$req" || {
                   echo "  install failed entirely for $req; skipping audit"
                   rm -rf "$VENV_DIR"
                   echo "::endgroup::"

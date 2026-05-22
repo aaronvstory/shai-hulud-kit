@@ -140,6 +140,8 @@ For a **Python project**:
    - `scripts/detect_compromise.py` → `<project>/scripts/`
    - `scripts/audit_deps.sh` and `.bat` → `<project>/scripts/`
    - `scripts/sandbox_install.sh` and `.bat` → `<project>/scripts/`
+   - `scripts/safe_install.sh` and `.bat` → `<project>/scripts/`
+   - `scripts/shai-hulud-audit.sh` and `.ps1` → `<project>/scripts/` (only if you want a project-local copy of the machine audit; the global install at `~/.shai-hulud/` covers most use cases)
 
    On macOS/Linux, the executable bit is not preserved through zip extraction.
    After copying, mark every `.sh` you placed as executable. Run these as one
@@ -148,6 +150,7 @@ For a **Python project**:
    ```bash
    chmod +x <project>/scripts/audit_deps.sh \
             <project>/scripts/sandbox_install.sh \
+            <project>/scripts/safe_install.sh \
             <project>/scripts/shai-hulud-audit.sh
    ```
 2. Create `tests/` if missing. Copy:

@@ -204,8 +204,10 @@ COMPROMISED_NPM_CANONICAL: dict[str, frozenset[str]] = {
 # we only need to canonicalize and compare.
 # Tolerates empty `[]` extras (bypass observed during review) and whitespace
 # anywhere between name / extras / spec.
+# Name pattern matches PEP 508: must START and END with alphanumeric, with
+# `.`/`_`/`-` allowed in the middle. A single-character name is also valid.
 _REQ_NAME_RE = re.compile(
-    r"^\s*([A-Za-z0-9][A-Za-z0-9._\-]*)\s*"
+    r"^\s*([A-Za-z0-9](?:[A-Za-z0-9._\-]*[A-Za-z0-9])?)\s*"
     r"(?:\[[^\]]*\])?\s*"
     r"(?:[=<>!~;@#].*|\#.*)?$"
 )
