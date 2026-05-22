@@ -28,6 +28,28 @@ pip-compile --generate-hashes --output-file=requirements-hashed-windows.txt requ
 pip install --require-hashes -r requirements-hashed.txt
 ```
 
+### Naming convention for split requirements files
+
+Both the project scanner (`scripts/detect_compromise.py`) and the pre-commit
+skip pattern look for files matching `requirements*.txt` at any depth. If you
+split deps across multiple files, use **flat names**, not a `requirements/`
+subdirectory:
+
+| ✅ Picked up (any depth) | ❌ Missed |
+|---|---|
+| `requirements.txt` | `requirements/base.txt` |
+| `requirements-dev.txt` | `requirements/dev.txt` |
+| `requirements-prod.txt` | `requirements/prod.txt` |
+| `requirements-hashed.txt` | `requirements.lock` |
+| `nested/dir/requirements-foo.txt` | `pip-deps.txt` |
+
+The `requirements/<env>.txt` layout is a popular Django/pip convention, but
+the kit's scanner uses `rglob("requirements*.txt")` — the **filename** must
+start with `requirements` and end with `.txt`, at any depth. Directory names
+are ignored. If you already use the subfolder layout, either rename
+to the flat convention or add explicit globs to your CI workflow / scanner
+config. (A future kit version may switch to a configurable include list.)
+
 ## §2 Daily audit
 
 ### Quick local audit
@@ -56,7 +78,7 @@ Catches PEP 508 dep declarations against known-compromised list, `.pth` exec, wo
 
 Or via slash command:
 ```
-/pooptin quick
+/hulud-kit quick
 ```
 
 ## §3 Adding a new dependency
@@ -187,3 +209,29 @@ As of late May 2026:
 | osv-scanner | 2.3.5 | Step action path: `google/osv-scanner-action/osv-scanner-action@v2.3.5` (NOT the reusable workflow path) |
 | OSV.dev API | v1 | Free, no key, `https://api.osv.dev/v1/querybatch` |
 | Python | 3.11+ | 3.12 ships without `_tkinter` on some platforms; 3.11 is the safer default |
+
+
+## Safe install wrapper (post-install audit)
+
+The real Shai-Hulud attack moment is `pip install` / `npm install` — postinstall scripts (npm) and `setup.py` (pip sdist) execute the moment a compromised version lands on disk. Pre-commit hooks don't help with this; the bad code is already running.
+
+Use `scripts/safe_install.sh` (Unix) or `scripts/safe_install.bat` (Windows) to wrap the package-manager call. They run the install, then run `scripts/detect_compromise.py --root .` immediately, so any persistence-pattern files or campaign markers are flagged before you continue working.
+
+```bash
+# Unix
+./scripts/safe_install.sh pip install some-package
+./scripts/safe_install.sh npm install some-package
+
+# Windows
+scripts\safe_install.bat pip install some-package
+scripts\safe_install.bat npm install some-package
+```
+
+Optional shell aliases (Unix):
+
+```bash
+alias pipi='/path/to/repo/scripts/safe_install.sh pip install'
+alias npmi='/path/to/repo/scripts/safe_install.sh npm install'
+```
+
+Exit codes match `detect_compromise.py`: `0` clean, `1` warnings, `2` alerts.

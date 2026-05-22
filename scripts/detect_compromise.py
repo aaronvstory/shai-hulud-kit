@@ -32,6 +32,7 @@ waves are disclosed.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import subprocess
@@ -155,11 +156,61 @@ SPOOFED_AUTHORS: frozenset[str] = frozenset({
 
 def compromised_pypi_pattern(bad: str) -> re.Pattern[str]:
     """PEP 508 name match — covers bare, extras, versioned, env-marker,
-    direct-ref, comment forms."""
+    direct-ref, comment forms.
+
+    Retained for backwards compatibility; the live check uses PEP 503
+    canonicalization (see ``canonicalize_name``) so that ``fast_agent_mcp``
+    and ``fast.agent.mcp`` match the ``fast-agent-mcp`` IOC entry.
+    """
     return re.compile(
         rf"^\s*{re.escape(bad)}\s*(?:\[[^\]]+\])?\s*(?:[=<>!~;@#]|$)",
         re.IGNORECASE,
     )
+
+
+# PEP 503 name normalization: lowercase + collapse runs of [-_.] to single '-'.
+# PyPI treats `fast-agent-mcp`, `fast_agent_mcp`, and `fast.agent.mcp` as the
+# same project, so the matcher must too.
+# See https://packaging.python.org/en/latest/specifications/name-normalization/
+_CANONICALIZE_RE = re.compile(r"[-_.]+")
+
+
+def canonicalize_name(name: str) -> str:
+    return _CANONICALIZE_RE.sub("-", name).lower()
+
+
+# Pre-canonicalize the IOC set once at import time.
+COMPROMISED_PYPI_CANONICAL: frozenset[str] = frozenset(
+    canonicalize_name(n) for n in COMPROMISED_PYPI
+)
+
+
+def canonicalize_npm_name(name: str) -> str:
+    """npm package names are case-insensitive on the registry — lowercase
+    is the canonical form. (Unlike PyPI, npm does not collapse '-_.' runs;
+    those characters are independently meaningful in the name.)"""
+    return name.lower()
+
+
+# Pre-canonicalize the npm IOC set so a lookup is O(1) even on lowercased
+# names from a package-lock that uppercases the scope or org segment.
+COMPROMISED_NPM_CANONICAL: dict[str, frozenset[str]] = {
+    canonicalize_npm_name(k): v for k, v in COMPROMISED_NPM.items()
+}
+
+# Match a PEP 508 requirement line and capture the project name only.
+# Group 1 = name. The remainder (extras, version spec, marker, direct ref,
+# trailing comment) is intentionally not captured — once the name is in hand
+# we only need to canonicalize and compare.
+# Tolerates empty `[]` extras (bypass observed during review) and whitespace
+# anywhere between name / extras / spec.
+# Name pattern matches PEP 508: must START and END with alphanumeric, with
+# `.`/`_`/`-` allowed in the middle. A single-character name is also valid.
+_REQ_NAME_RE = re.compile(
+    r"^\s*([A-Za-z0-9](?:[A-Za-z0-9._\-]*[A-Za-z0-9])?)\s*"
+    r"(?:\[[^\]]*\])?\s*"
+    r"(?:[=<>!~;@#].*|\#.*)?$"
+)
 
 
 WORKFLOW_PATTERNS: list[re.Pattern[str]] = [
@@ -191,6 +242,46 @@ PTH_ALLOWLIST_EXACT: frozenset[str] = frozenset({
     "import sys; sys.__plen = len(sys.path)",
     "",
 })
+
+# SHA256 of stripped() bytes of known-good .pth shims. Real
+# distutils-precedence.pth contains an `import os; ...
+# __import__('_distutils_hack').add_shim()` shim that trips
+# PTH_EXEC_PATTERNS but is legitimate. Hashes vary across setuptools
+# versions, so we keep a frozenset; extend it with:
+#   python -c "import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb').read().decode('utf-8').strip().encode('utf-8')).hexdigest())" path/to/x.pth
+PTH_ALLOWLIST_SHA256: frozenset[str] = frozenset({
+    # setuptools distutils-precedence.pth, observed forms
+    "2f70c2fa9227e9db9348215d9c7b246d2786aac7516f86d71a5952c7c225aa16",
+    # virtualenv 20.x _virtualenv.pth — content is literally `import _virtualenv`
+    "69ac3d8f27e679c81b94ab30b3b56e9cd138219b1ba94a1fa3606d5a76a1433d",
+})
+
+# Filenames that are categorically legitimate shims when matched against
+# the SHA256 or content-pattern allowlist. Defense in depth — even if an
+# attacker dropped a file with a colliding hash, an unexpected filename
+# still alerts. Keep this list narrow: only add a name when at least one
+# hash or content pattern actually exists for it.
+PTH_ALLOWLIST_NAMES: frozenset[str] = frozenset({
+    "distutils-precedence.pth",
+    "_virtualenv.pth",
+})
+
+# Content-pattern allowlist — durable fallback for files whose SHA256 isn't
+# yet in PTH_ALLOWLIST_SHA256 but whose content matches a canonical legit
+# shim shape. Each pattern must be tight enough that an attacker can't
+# trivially mimic it. Currently: the setuptools distutils-precedence shim,
+# matched against the full stripped content (anchored). Whitespace tolerated.
+PTH_ALLOWLIST_PATTERNS: list[re.Pattern[str]] = [
+    # setuptools distutils-precedence.pth (any version 68.x..80.x observed)
+    re.compile(
+        r"\Aimport\s+os\s*;\s*"
+        r"var\s*=\s*['\"]SETUPTOOLS_USE_DISTUTILS['\"]\s*;\s*"
+        r"enabled\s*=\s*os\.environ\.get\(\s*var\s*,\s*['\"]local['\"]\s*\)"
+        r"(?:\s*\.lower\(\)\s*in\s*\([^)]+\)|\s*==\s*['\"]local['\"])\s*;\s*"
+        r"enabled\s+and\s+__import__\(\s*['\"]_distutils_hack['\"]\s*\)\.add_shim\(\s*\)\s*;?\s*\Z",
+        re.MULTILINE,
+    ),
+]
 
 _REMOTE_URL_AUTHORITY_RE = re.compile(
     r"(?P<scheme>[a-zA-Z][\w+.\-]*://)(?P<auth>[^/@\s]+@)"
@@ -274,17 +365,29 @@ def check_compromised_pypi(root: Path) -> list[Finding]:
             content = req.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        for bad in COMPROMISED_PYPI:
-            pattern = compromised_pypi_pattern(bad)
-            for lineno, line in enumerate(content.splitlines(), 1):
-                if pattern.match(line):
-                    findings.append(Finding(
-                        section="pypi", type="compromised_dependency",
-                        level="ALERT",
-                        message=f"compromised package '{bad}' in {req}:{lineno}",
-                        details={"package": bad, "file": str(req),
-                                 "line": lineno, "raw": line.strip()},
-                    ))
+        for lineno, line in enumerate(content.splitlines(), 1):
+            stripped = line.strip()
+            # Skip blank lines, comments, and pip directives (-r, -c, --index-url …)
+            if not stripped or stripped.startswith("#") or stripped.startswith("-"):
+                continue
+            m = _REQ_NAME_RE.match(line)
+            if not m:
+                continue
+            raw_name = m.group(1)
+            canonical = canonicalize_name(raw_name)
+            if canonical not in COMPROMISED_PYPI_CANONICAL:
+                continue
+            findings.append(Finding(
+                section="pypi", type="compromised_dependency",
+                level="ALERT",
+                message=(
+                    f"compromised package '{raw_name}' (canonical "
+                    f"'{canonical}') in {req}:{lineno}"
+                ),
+                details={"package": raw_name, "canonical": canonical,
+                         "file": str(req), "line": lineno,
+                         "raw": stripped},
+            ))
     return findings
 
 
@@ -309,8 +412,9 @@ def check_compromised_npm(root: Path) -> list[Finding]:
                 if not isinstance(deps, dict):
                     continue
                 for pkg, ver_spec in deps.items():
-                    if pkg in COMPROMISED_NPM:
-                        bad_versions = COMPROMISED_NPM[pkg]
+                    canonical = canonicalize_npm_name(pkg)
+                    if canonical in COMPROMISED_NPM_CANONICAL:
+                        bad_versions = COMPROMISED_NPM_CANONICAL[canonical]
                         # If specific versions are tracked, check the spec
                         if bad_versions:
                             ver_str = str(ver_spec).strip().lstrip("^~>=<")
@@ -334,10 +438,13 @@ def check_compromised_npm(root: Path) -> list[Finding]:
                 if not isinstance(pkg_info, dict):
                     continue
                 name = pkg_info.get("name") or _name_from_lock_key(key)
-                if not name or name not in COMPROMISED_NPM:
+                if not name:
+                    continue
+                canonical = canonicalize_npm_name(name)
+                if canonical not in COMPROMISED_NPM_CANONICAL:
                     continue
                 version = pkg_info.get("version", "")
-                bad_versions = COMPROMISED_NPM[name]
+                bad_versions = COMPROMISED_NPM_CANONICAL[canonical]
                 if not bad_versions or version in bad_versions:
                     _add_npm_finding(findings, name, version, path,
                                      "package-lock", "locked_to_bad_version")
@@ -383,6 +490,20 @@ def check_pth_files(root: Path) -> list[Finding]:
                 continue
             stripped = content.strip()
             if stripped in PTH_ALLOWLIST_EXACT:
+                continue
+            # SHA256 + filename guardrail: legitimate shim with both a
+            # known-good hash AND a recognized filename short-circuits.
+            sha = hashlib.sha256(stripped.encode("utf-8")).hexdigest()
+            if sha in PTH_ALLOWLIST_SHA256 and pth.name in PTH_ALLOWLIST_NAMES:
+                continue
+            # Content-pattern allowlist: durable fallback for shims whose
+            # exact hash isn't tracked yet but whose structure matches a
+            # canonical legit form (e.g., setuptools across versions).
+            # Still requires the recognized filename to defend against
+            # someone dropping a "looks-like-shim" file under an evil name.
+            if pth.name in PTH_ALLOWLIST_NAMES and any(
+                pat.search(stripped) for pat in PTH_ALLOWLIST_PATTERNS
+            ):
                 continue
             for pat in PTH_EXEC_PATTERNS:
                 if pat.search(content):
@@ -469,18 +590,65 @@ def check_git_remotes(root: Path) -> list[Finding]:
 # Check 6: Claude Code / VSCode persistence files (NEW in v1.1)
 # ============================================================================
 
+_MAX_HASH_FILE_BYTES = 5_000_000
+
+
+def _hash_persistence_file(target: Path) -> Optional[Finding]:
+    """If ``target`` exists, is under the size cap, and its SHA256 is in
+    MALICIOUS_SHA256, return a finding. Otherwise None.
+
+    Composed with the path-based check in ``check_persistence_paths``: the
+    constant's docstring intentionally scopes hash matching to persistence
+    paths (broader scanning belongs to ``shai-hulud-audit.{ps1,sh}``).
+    """
+    try:
+        size = target.stat().st_size
+    except OSError:
+        return None
+    if size > _MAX_HASH_FILE_BYTES:
+        return None
+    try:
+        data = target.read_bytes()
+    except OSError:
+        return None
+    digest = hashlib.sha256(data).hexdigest()
+    if digest not in MALICIOUS_SHA256:
+        return None
+    return Finding(
+        section="persistence", type="known_malicious_hash", level="ALERT",
+        message=(
+            f"file at {target} matches known TeamPCP payload hash "
+            f"{digest[:12]}…"
+        ),
+        details={"file": str(target), "sha256": digest,
+                 "note": "exact match against MALICIOUS_SHA256 IOC list"},
+    )
+
+
 def check_persistence_paths(root: Path) -> list[Finding]:
     """Detect TeamPCP persistence via Claude Code / VSCode config + payload files.
 
     Some of these paths legitimately exist in many projects (.claude/settings.json,
     .vscode/tasks.json), so we only ALERT on suspicious filenames. For legitimate
     config files, we WARN only if the file content matches an IoC keyword.
+
+    Additionally, for every file that matches a persistence path entry, the
+    file's SHA256 is checked against ``MALICIOUS_SHA256``. A hash match emits
+    a separate ``known_malicious_hash`` ALERT in addition to the path-based
+    finding so reviewers see both signals.
     """
     findings: list[Finding] = []
     for rel_path, level, description, content_keyword in PERSISTENCE_PATHS:
         target = root / rel_path
         if not target.exists():
             continue
+        # Hash-based check runs independently of the keyword filter so a
+        # known-bad payload dropped at one of the keyword-guarded paths
+        # (.claude/settings.json, .vscode/tasks.json) is still caught when
+        # the file lacks the legacy trigger keyword.
+        hash_finding = _hash_persistence_file(target)
+        if hash_finding is not None:
+            findings.append(hash_finding)
         if content_keyword is not None:
             try:
                 content = target.read_text(encoding="utf-8", errors="replace")

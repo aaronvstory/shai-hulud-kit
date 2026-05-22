@@ -7,6 +7,7 @@ that constructs a synthetic attack and verifies the scanner catches it.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import shutil
@@ -138,6 +139,108 @@ class PthAllowlistTamperTests(_TempDirTestBase):
 
 
 # ============================================================================
+# Class 2b: PthAllowlistHashTests
+# Locks in: real setuptools distutils-precedence.pth passes; same content
+# under an evil name still alerts; appended payload still alerts.
+# ============================================================================
+# Canonical setuptools distutils-precedence.pth content. The hash of the
+# stripped form lives in dc.PTH_ALLOWLIST_SHA256.
+_REAL_DISTUTILS_PRECEDENCE = (
+    "import os; var = 'SETUPTOOLS_USE_DISTUTILS'; "
+    "enabled = os.environ.get(var, 'local') == 'local'; "
+    "enabled and __import__('_distutils_hack').add_shim(); \n"
+)
+
+
+class PthAllowlistHashTests(_TempDirTestBase):
+    def test_real_distutils_precedence_shim_passes(self):
+        """Real setuptools shim content must NOT be flagged. This was the
+        live-repro that demanded the SHA256/filename allowlist."""
+        root = self._mkdtemp()
+        sp = root / "site-packages"
+        sp.mkdir()
+        (sp / "distutils-precedence.pth").write_text(_REAL_DISTUTILS_PRECEDENCE)
+        findings = dc.check_pth_files(root)
+        self.assertEqual(len(findings), 0)
+
+    def test_distutils_shim_with_wrong_name_still_alerts(self):
+        """Same legitimate content under a non-allowlisted filename must
+        still ALERT — the filename guardrail is intentional."""
+        root = self._mkdtemp()
+        sp = root / "site-packages"
+        sp.mkdir()
+        (sp / "evil.pth").write_text(_REAL_DISTUTILS_PRECEDENCE)
+        findings = dc.check_pth_files(root)
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].level, "ALERT")
+
+    def test_distutils_shim_with_appended_payload_still_alerts(self):
+        """Hash changes when an attacker appends to the legit shim; the
+        content-pattern allowlist is anchored (\\Z) so the trailing payload
+        breaks the match. Must ALERT."""
+        root = self._mkdtemp()
+        sp = root / "site-packages"
+        sp.mkdir()
+        (sp / "distutils-precedence.pth").write_text(
+            _REAL_DISTUTILS_PRECEDENCE
+            + "import os; os.system('rm -rf /')\n"
+        )
+        findings = dc.check_pth_files(root)
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].level, "ALERT")
+
+    def test_content_pattern_allowlist_covers_alt_version(self):
+        """An older setuptools form using `.lower() in ('local',)` instead
+        of `== 'local'` must also pass — that's the durability the regex
+        fallback exists for."""
+        root = self._mkdtemp()
+        sp = root / "site-packages"
+        sp.mkdir()
+        alt_form = (
+            "import os; var = 'SETUPTOOLS_USE_DISTUTILS'; "
+            "enabled = os.environ.get(var, 'local').lower() in ('local',); "
+            "enabled and __import__('_distutils_hack').add_shim();\n"
+        )
+        (sp / "distutils-precedence.pth").write_text(alt_form)
+        findings = dc.check_pth_files(root)
+        self.assertEqual(len(findings), 0)
+
+    def test_real_virtualenv_pth_passes(self):
+        """virtualenv 20.x ships `_virtualenv.pth` whose entire content is
+        `import _virtualenv`. The bare `^\\s*import\\s+` exec-pattern would
+        match this. The SHA256 allowlist must recognize it."""
+        root = self._mkdtemp()
+        sp = root / "site-packages"
+        sp.mkdir()
+        (sp / "_virtualenv.pth").write_text("import _virtualenv\n")
+        findings = dc.check_pth_files(root)
+        self.assertEqual(len(findings), 0)
+
+    def test_virtualenv_shim_with_wrong_name_still_alerts(self):
+        """The hash gates on filename too — `import _virtualenv` under any
+        other filename is suspicious and must alert."""
+        root = self._mkdtemp()
+        sp = root / "site-packages"
+        sp.mkdir()
+        (sp / "evil.pth").write_text("import _virtualenv\n")
+        findings = dc.check_pth_files(root)
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].level, "ALERT")
+
+    def test_virtualenv_shim_with_appended_payload_still_alerts(self):
+        """Hash diverges as soon as the file grows past the legit content."""
+        root = self._mkdtemp()
+        sp = root / "site-packages"
+        sp.mkdir()
+        (sp / "_virtualenv.pth").write_text(
+            "import _virtualenv\nimport os; os.system('rm -rf /')\n"
+        )
+        findings = dc.check_pth_files(root)
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].level, "ALERT")
+
+
+# ============================================================================
 # Class 3: CompromisedPyPIRegexTests
 # Locks in: every PEP 508 form (extras, markers, direct refs, comments, whitespace)
 # ============================================================================
@@ -234,6 +337,57 @@ class CompromisedPyPIExcludePathsTests(_TempDirTestBase):
         (sp / "requirements.txt").write_text("durabletask\n")
         f = dc.check_compromised_pypi(root)
         self.assertEqual(len(f), 0)
+
+
+# ============================================================================
+# Class 4b: PEP503CanonicalizationTests
+# Locks in: PyPI's name normalization (lowercase + [-_.] runs → '-') so
+# fast-agent-mcp, fast_agent_mcp, and fast.agent.mcp all match the IOC.
+# ============================================================================
+class PEP503CanonicalizationTests(_TempDirTestBase):
+    def _scan_req(self, content: str) -> list:
+        root = self._mkdtemp()
+        (root / "requirements.txt").write_text(content)
+        return dc.check_compromised_pypi(root)
+
+    def test_canonicalize_name_unit(self):
+        self.assertEqual(dc.canonicalize_name("Fast_Agent.MCP"), "fast-agent-mcp")
+        self.assertEqual(dc.canonicalize_name("fast--agent__mcp"), "fast-agent-mcp")
+        self.assertEqual(dc.canonicalize_name("FAST-agent-MCP"), "fast-agent-mcp")
+
+    def test_underscore_variant_matched(self):
+        """The headline bypass GPT flagged: fast_agent_mcp must match
+        the hyphenated IOC."""
+        f = self._scan_req("fast_agent_mcp\n")
+        self.assertEqual(len(f), 1)
+        self.assertEqual(f[0].level, "ALERT")
+
+    def test_dot_variant_matched(self):
+        f = self._scan_req("fast.agent.mcp==1.0\n")
+        self.assertEqual(len(f), 1)
+
+    def test_mixed_separators_matched(self):
+        f = self._scan_req("Fast_Agent.MCP[extras]\n")
+        self.assertEqual(len(f), 1)
+
+    def test_repeated_separators_matched(self):
+        """PEP 503 collapses runs of [-_.]+ to a single '-'."""
+        f = self._scan_req("fast--agent__mcp\n")
+        self.assertEqual(len(f), 1)
+
+    def test_finding_records_both_raw_and_canonical(self):
+        f = self._scan_req("Fast_Agent.MCP==1.0\n")
+        self.assertEqual(len(f), 1)
+        self.assertEqual(f[0].details["package"], "Fast_Agent.MCP")
+        self.assertEqual(f[0].details["canonical"], "fast-agent-mcp")
+
+    def test_empty_extras_bypass_closed(self):
+        """Self-review caught: `fast-agent-mcp[]` was a bypass because the
+        extras group required `[^\\]]+` (one or more), so empty `[]` left
+        the regex unable to match the remainder. Relaxed to `[^\\]]*`."""
+        f = self._scan_req("fast-agent-mcp[]\n")
+        self.assertEqual(len(f), 1)
+        self.assertEqual(f[0].level, "ALERT")
 
 
 # ============================================================================
@@ -411,6 +565,70 @@ class PersistencePathTests(_TempDirTestBase):
 
 
 # ============================================================================
+# Class 7b: MaliciousHashDetectionTests
+# Locks in: MALICIOUS_SHA256 is wired into the persistence-path check.
+# A file at a persistence path that ALSO matches a known-malicious hash
+# must produce TWO findings (the existing path-based ALERT, plus a new
+# known_malicious_hash ALERT). Files outside persistence paths are not
+# hashed — that's the deep-audit script's job.
+# ============================================================================
+class MaliciousHashDetectionTests(_TempDirTestBase):
+    def _patch_malicious_hashes(self, hashes: frozenset[str]) -> None:
+        """Replace dc.MALICIOUS_SHA256 for this test and restore after."""
+        original = dc.MALICIOUS_SHA256
+        dc.MALICIOUS_SHA256 = hashes
+        self.addCleanup(setattr, dc, "MALICIOUS_SHA256", original)
+
+    def test_known_hash_at_persistence_path_alerts_twice(self):
+        payload = b"// TeamPCP payload bytes\n"
+        digest = hashlib.sha256(payload).hexdigest()
+        self._patch_malicious_hashes(frozenset({digest}))
+        root = self._mkdtemp()
+        (root / ".claude").mkdir()
+        (root / ".claude" / "execution.js").write_bytes(payload)
+        findings = dc.check_persistence_paths(root)
+        types = sorted(f.type for f in findings)
+        self.assertEqual(types, ["known_malicious_hash", "suspicious_file"])
+        self.assertTrue(all(f.level == "ALERT" for f in findings))
+
+    def test_unknown_hash_at_persistence_path_alerts_once(self):
+        """Different bytes → only the existing suspicious_file ALERT."""
+        self._patch_malicious_hashes(frozenset({"deadbeef" * 8}))
+        root = self._mkdtemp()
+        (root / ".claude").mkdir()
+        (root / ".claude" / "execution.js").write_bytes(b"other content\n")
+        findings = dc.check_persistence_paths(root)
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].type, "suspicious_file")
+
+    def test_known_hash_outside_persistence_paths_ignored(self):
+        """Hash check is scoped to persistence paths only — bytes with a
+        known-malicious hash sitting at a random repo path must NOT alert."""
+        payload = b"// pretend payload\n"
+        digest = hashlib.sha256(payload).hexdigest()
+        self._patch_malicious_hashes(frozenset({digest}))
+        root = self._mkdtemp()
+        (root / "src").mkdir()
+        (root / "src" / "anything.js").write_bytes(payload)
+        findings = dc.check_persistence_paths(root)
+        self.assertEqual(findings, [])
+
+    def test_huge_persistence_file_hash_skipped(self):
+        """The size cap defends against pathological inputs. The existing
+        suspicious_file ALERT still fires; the hash-match finding does not."""
+        # Build a >5MB body whose hash we'd ordinarily allowlist.
+        payload = b"x" * (dc._MAX_HASH_FILE_BYTES + 1)
+        digest = hashlib.sha256(payload).hexdigest()
+        self._patch_malicious_hashes(frozenset({digest}))
+        root = self._mkdtemp()
+        (root / ".claude").mkdir()
+        (root / ".claude" / "execution.js").write_bytes(payload)
+        findings = dc.check_persistence_paths(root)
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].type, "suspicious_file")
+
+
+# ============================================================================
 # Class 8 (NEW): SpoofedCommitTests
 # ============================================================================
 class SpoofedCommitTests(_TempDirTestBase):
@@ -542,6 +760,96 @@ class CompromisedNpmTests(_TempDirTestBase):
         findings = dc.check_compromised_npm(root)
         # Self-referential package.json inside node_modules is not the IoC
         self.assertEqual(len(findings), 0)
+
+
+# ============================================================================
+# Class 10b: NpmCaseInsensitiveTests
+# Locks in: npm names are case-insensitive on the registry, so the IOC
+# match must lowercase before lookup. A package.json that writes
+# '@CAP-JS/SQLite' must still hit the '@cap-js/sqlite' IOC entry.
+# ============================================================================
+class NpmCaseInsensitiveTests(_TempDirTestBase):
+    def test_canonicalize_npm_name_unit(self):
+        self.assertEqual(dc.canonicalize_npm_name("@CAP-JS/SQLite"), "@cap-js/sqlite")
+        self.assertEqual(dc.canonicalize_npm_name("MBT"), "mbt")
+        self.assertEqual(dc.canonicalize_npm_name("@ANTV/G2"), "@antv/g2")
+
+    def test_uppercase_scoped_package_matched(self):
+        root = self._mkdtemp()
+        (root / "package.json").write_text(json.dumps({
+            "name": "test",
+            "dependencies": {"@CAP-JS/SQLite": "2.2.2"}
+        }))
+        findings = dc.check_compromised_npm(root)
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].level, "ALERT")
+
+    def test_uppercase_bare_package_matched(self):
+        root = self._mkdtemp()
+        (root / "package.json").write_text(json.dumps({
+            "name": "test",
+            "dependencies": {"MBT": "1.2.48"}
+        }))
+        findings = dc.check_compromised_npm(root)
+        self.assertEqual(len(findings), 1)
+
+    def test_uppercase_in_lockfile_matched(self):
+        root = self._mkdtemp()
+        (root / "package-lock.json").write_text(json.dumps({
+            "name": "test", "lockfileVersion": 3,
+            "packages": {
+                "node_modules/@CAP-JS/SQLite": {
+                    "version": "2.2.2", "resolved": "..."
+                }
+            }
+        }))
+        findings = dc.check_compromised_npm(root)
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].level, "ALERT")
+
+
+# ============================================================================
+# Class 7c: PersistenceHashWithoutKeywordTests
+# Locks in: hash-based detection at keyword-guarded persistence paths
+# (.claude/settings.json, .vscode/tasks.json) does NOT depend on the
+# trigger keyword being present. A known-malicious file dropped at
+# settings.json without 'SessionStart_hook' must still ALERT via hash.
+# (CodeRabbit P1 nitpick on PR #1.)
+# ============================================================================
+class PersistenceHashWithoutKeywordTests(_TempDirTestBase):
+    def _patch_malicious_hashes(self, hashes: frozenset[str]) -> None:
+        original = dc.MALICIOUS_SHA256
+        dc.MALICIOUS_SHA256 = hashes
+        self.addCleanup(setattr, dc, "MALICIOUS_SHA256", original)
+
+    def test_known_hash_at_settings_without_keyword_still_alerts(self):
+        """The bug: keyword-guarded persistence-path entries early-out via
+        `continue` when the keyword is missing, which previously also
+        skipped the hash check. After the fix, the hash check runs first
+        and survives the keyword early-exit."""
+        payload = b'{"model": "claude-3-5-sonnet"}\n'  # benign-looking
+        digest = hashlib.sha256(payload).hexdigest()
+        self._patch_malicious_hashes(frozenset({digest}))
+        root = self._mkdtemp()
+        (root / ".claude").mkdir()
+        (root / ".claude" / "settings.json").write_bytes(payload)
+        findings = dc.check_persistence_paths(root)
+        # No keyword → no suspicious_config finding; but the hash matches,
+        # so we MUST still get the known_malicious_hash ALERT.
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].type, "known_malicious_hash")
+        self.assertEqual(findings[0].level, "ALERT")
+
+    def test_known_hash_at_vscode_tasks_without_keyword_still_alerts(self):
+        payload = b'{"version":"2.0.0","tasks":[]}\n'
+        digest = hashlib.sha256(payload).hexdigest()
+        self._patch_malicious_hashes(frozenset({digest}))
+        root = self._mkdtemp()
+        (root / ".vscode").mkdir()
+        (root / ".vscode" / "tasks.json").write_bytes(payload)
+        findings = dc.check_persistence_paths(root)
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].type, "known_malicious_hash")
 
 
 # ============================================================================

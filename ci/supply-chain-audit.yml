@@ -1,12 +1,18 @@
 name: Supply Chain Audit
 
 on:
-  push:
-    branches: [main, master]
+  # PR-only: runs once when the PR opens and once per push to the PR branch.
+  # We deliberately do NOT trigger on push to main/master — that would re-run on
+  # every commit landing on the integration branch, doubling CI cost with no
+  # added signal (the PR already audited the same diff).
   pull_request:
+    # Skip drafts to keep the in-progress feedback loop fast.
+    types: [opened, synchronize, reopened, ready_for_review]
+  # Nightly catches advisories published since the last PR check.
   schedule:
-    # Nightly at 07:00 UTC — catches advisories published since last commit
     - cron: '0 7 * * *'
+  # Manual run-button for when you want to audit main without opening a PR.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -30,11 +36,14 @@ jobs:
 
       - name: Audit requirements
         run: |
-          # Audit hashed file with --require-hashes if present and
-          # platform-compatible. The platform gate is "are we on Windows?",
-          # not "does the file mention a Windows-only package?" — the latter
-          # is fragile if dep names change.
-          if [ -f requirements-hashed.txt ] && [ "${RUNNER_OS}" = "Windows" ]; then
+          # Prefer hash-pinned requirements when available — pip's secure-install
+          # guidance requires --require-hashes for all-or-nothing hash checking.
+          # The hashed-audit path is OS-agnostic for pure-Python deps; if your
+          # project pins Windows-specific wheels (pywin32, etc.) in
+          # requirements-hashed.txt, regenerate it on the same OS the runner
+          # uses (ubuntu-latest by default) or change `runs-on` to match.
+          # See INTEGRATION.md § "Hash-pinned requirements and OS-specific wheels".
+          if [ -f requirements-hashed.txt ]; then
             python -m pip_audit -r requirements-hashed.txt \
               --strict --require-hashes --progress-spinner off
           elif [ -f requirements.txt ]; then
@@ -86,17 +95,30 @@ jobs:
             VENV_PY="$VENV_DIR/bin/python"
             VENV_PIP="$VENV_DIR/bin/pip"
 
-            # Wheel-only first to avoid setup.py execution from sdists.
-            # Fall back to unconstrained install only if wheel-only fails
-            # (some packages have no wheel for Linux).
-            if ! "$VENV_PIP" install --quiet --only-binary :all: -r "$req" 2>/dev/null; then
-              echo "  wheel-only install failed; falling back to allow sdist"
-              "$VENV_PIP" install --quiet -r "$req" 2>/dev/null || {
-                echo "  install failed entirely for $req; skipping audit"
+            # Wheel-only by default — sdist installs can execute setup.py
+            # build hooks, which is exactly what this hardening lane tries
+            # to avoid. Set ALLOW_SDIST_AUDIT=1 in the workflow env to
+            # opt into the legacy fallback if a manifest legitimately
+            # requires sdist-only deps.
+            # Don't suppress stderr — when an install fails (missing wheel,
+            # resolver conflict, hash mismatch, etc.) pip's diagnostics are the
+            # primary debug signal. --quiet already silences normal output.
+            if ! "$VENV_PIP" install --quiet --only-binary :all: -r "$req"; then
+              if [ "${ALLOW_SDIST_AUDIT:-0}" = "1" ]; then
+                echo "  wheel-only install failed; ALLOW_SDIST_AUDIT=1 — falling back to allow sdist"
+                "$VENV_PIP" install --quiet -r "$req" || {
+                  echo "  install failed entirely for $req; skipping audit"
+                  rm -rf "$VENV_DIR"
+                  echo "::endgroup::"
+                  continue
+                }
+              else
+                echo "  wheel-only install failed for $req — set ALLOW_SDIST_AUDIT=1 to allow sdist fallback"
                 rm -rf "$VENV_DIR"
                 echo "::endgroup::"
+                FAILED=1
                 continue
-              }
+              fi
             fi
 
             if ! "$VENV_PY" -m pip_audit --strict; then

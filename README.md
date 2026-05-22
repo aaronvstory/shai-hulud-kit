@@ -4,12 +4,12 @@ A drop-in supply chain audit + hardening toolkit for the active **Shai-Hulud / T
 
 ## What this is
 
-One folder. Point Claude Code at it. Claude Code reads `INTEGRATION.md` and installs the right pieces for your setup — whether you have nothing yet, partial hardening already, or just want the `/pooptin` slash command globally.
+One folder. Point Claude Code at it. Claude Code reads `INTEGRATION.md` and installs the right pieces for your setup — whether you have nothing yet, partial hardening already, or just want the `/hulud-kit` slash command globally.
 
 Two layers, both included:
 
 - **Machine-level audit** (`scripts/shai-hulud-audit.{ps1,sh}`) — scans installed packages anywhere on your machine, queries OSV.dev live, checks system IOCs (DNS, env vars, git anomalies, GitHub exfil repos).
-- **Project-level audit** (`scripts/detect_compromise.py` v1.1) — in-tree Python scanner with 9 checks: PEP 508 regex, npm package@version matching, `.pth` exec, workflow tamper, git remote C2 + IP, `.claude/`/`.vscode/` persistence detection, spoofed commit authors, campaign string markers, self-check. 64 property tests included. SARIF 2.1.0 output for GitHub Security tab.
+- **Project-level audit** (`scripts/detect_compromise.py` v1.1) — in-tree Python scanner with 9 checks: PEP 508 regex, npm package@version matching, `.pth` exec, workflow tamper, git remote C2 + IP, `.claude/`/`.vscode/` persistence detection, spoofed commit authors, campaign string markers, self-check. 88 property tests included. SARIF 2.1.0 output for GitHub Security tab.
 
 **New in v1.1** (uses [copyleftdev/mini-shai-hulud-dragnet](https://github.com/copyleftdev/mini-shai-hulud-dragnet) IOC data):
 - Detects TeamPCP's Claude Code persistence vector (`.claude/execution.js`, `.claude/setup.mjs`, `SessionStart_hook` in `.claude/settings.json`)
@@ -24,7 +24,7 @@ Two layers, both included:
 Drop this folder somewhere accessible. Then in any Claude Code session:
 
 ```
-look at /path/to/shai-hulud-kit and integrate it. set up /pooptin globally
+look at /path/to/shai-hulud-kit and integrate it. set up /hulud-kit globally
 and also wire the project tools into the current project.
 ```
 
@@ -41,12 +41,13 @@ relevant for my system.
 
 After install:
 
-- **`/pooptin`** slash command in Claude Code (any project) — invokes the machine audit
-- **`/pooptin quick`** — current-project scan, <30s, runs on pre-commit
-- **`/pooptin deep`** — full machine scan including env vars, credential file inventory
-- **`/pooptin status`** — last scan summary
-- **Pre-commit hook** that blocks commits on critical findings
-- **GitHub Actions workflow** with pip-audit + per-manifest ephemeral venv + osv-scanner
+- **`/hulud-kit`** slash command in Claude Code (any project) — invokes the machine audit
+- **`/hulud-kit quick`** — current-project scan, <30s
+- **`/hulud-kit deep`** — full machine scan including env vars, credential file inventory
+- **`/hulud-kit status`** — last scan summary
+- **Smart pre-commit hook** — skips the scan unless dep manifests / workflows / `.claude/` files actually change in the commit, so source-only commits stay sub-second. Blocks commits on critical findings.
+- **Safe install wrappers** (`scripts/safe_install.{sh,bat}`) — wrap `pip install` / `npm install` and audit the project immediately after install, which is when malicious post-install scripts execute.
+- **GitHub Actions workflow** with pip-audit + per-manifest ephemeral venv + osv-scanner. Triggers on PR (open + sync) + nightly + manual dispatch — not on every push to main, so PRs aren't re-audited after merge.
 - **Dependabot config** with weekly grouped + immediate security PRs
 - **4 docs** for threat model, hardening, IOC response, and solo-dev hygiene
 
@@ -61,11 +62,12 @@ shai-hulud-kit/
 │   ├── shai-hulud-audit.sh    ← Machine audit (bash, macOS/Linux)
 │   ├── detect_compromise.py   ← Project audit (Python, all OS)
 │   ├── audit_deps.{sh,bat}    ← Local pip-audit driver
-│   └── sandbox_install.{sh,bat} ← Isolated dep install
+│   ├── sandbox_install.{sh,bat} ← Isolated dep install
+│   └── safe_install.{sh,bat}  ← Wrap `pip install` / `npm install` with post-install audit
 ├── tests/
-│   └── test_detect_compromise.py  ← 44 property tests
+│   └── test_detect_compromise.py  ← 88 property tests
 ├── claude-code/
-│   ├── commands/pooptin.md    ← Slash command
+│   ├── commands/hulud-kit.md    ← Slash command
 │   └── CLAUDE-snippet.md      ← Project CLAUDE.md addition
 ├── git-hooks/
 │   ├── pre-commit             ← bash version
@@ -133,6 +135,11 @@ chmod +x <your-repo>/.git/hooks/pre-commit
 Copy-Item git-hooks/pre-commit.ps1 <your-repo>/.git/hooks/pre-commit.ps1
 ```
 
+**Override knobs:**
+
+- `SHAI_HULUD_FORCE=1` — run the scan even when no dep/workflow files changed in this commit (default skips that case for speed).
+- `SHAI_HULUD_MACHINE_AUDIT=1` — also run the slow machine-wide OSV.dev scan during pre-commit. Off by default (~5min); enable if you specifically want commit-time machine-level coverage.
+
 ## Threat context (late May 2026)
 
 | Date | Wave | Impact |
@@ -165,4 +172,4 @@ Pre-commit hook blocks on exit code 2.
 
 ## License
 
-Public domain / use as you wish. No warranty.
+MIT — see [LICENSE](LICENSE). Use as you wish, no warranty.

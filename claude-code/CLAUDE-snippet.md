@@ -13,7 +13,7 @@ Run **both** checks. They cover different layers:
 
 1. **Machine-level audit** (catches compromised packages anywhere on disk, system IOCs):
    ```bash
-   /pooptin quick
+   /hulud-kit quick
    ```
    Or directly:
    ```bash
