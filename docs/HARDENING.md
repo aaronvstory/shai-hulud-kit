@@ -35,16 +35,18 @@ skip pattern look for files matching `requirements*.txt` at any depth. If you
 split deps across multiple files, use **flat names**, not a `requirements/`
 subdirectory:
 
-| ✅ Picked up | ❌ Missed |
+| ✅ Picked up (any depth) | ❌ Missed |
 |---|---|
 | `requirements.txt` | `requirements/base.txt` |
 | `requirements-dev.txt` | `requirements/dev.txt` |
 | `requirements-prod.txt` | `requirements/prod.txt` |
-| `requirements-hashed.txt` | `deps/requirements.txt` |
+| `requirements-hashed.txt` | `requirements.lock` |
+| `nested/dir/requirements-foo.txt` | `pip-deps.txt` |
 
 The `requirements/<env>.txt` layout is a popular Django/pip convention, but
-the kit's scanner uses `rglob("requirements*.txt")` — file *name* matching,
-not directory matching. If you already use the subfolder layout, either rename
+the kit's scanner uses `rglob("requirements*.txt")` — the **filename** must
+start with `requirements` and end with `.txt`, at any depth. Directory names
+are ignored. If you already use the subfolder layout, either rename
 to the flat convention or add explicit globs to your CI workflow / scanner
 config. (A future kit version may switch to a configurable include list.)
 

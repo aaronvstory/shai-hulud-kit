@@ -29,7 +29,7 @@ if (-not $repoRoot) {
 # --- Skip scan when no dep-related files in this commit ---
 # Supply chain risk only materializes when dep manifests change. If this commit
 # touches only source code, the scan adds no signal and ~45s of latency.
-$depPattern = '(^|/)(requirements[^/]*\.txt|package(-lock)?\.json|pnpm-lock\.yaml|yarn\.lock|pyproject\.toml|Pipfile(\.lock)?|poetry\.lock|uv\.lock|\.pth|\.github/workflows/.*\.ya?ml|\.claude/.*\.(js|mjs|json))$'
+$depPattern = '(^|/)(requirements[^/]*\.txt|package(-lock)?\.json|pnpm-lock\.yaml|yarn\.lock|pyproject\.toml|Pipfile(\.lock)?|poetry\.lock|uv\.lock|[^/]*\.pth|\.github/workflows/.*\.ya?ml|\.claude/.*\.(js|mjs|json))$'
 if ($env:SHAI_HULUD_FORCE -ne "1") {
     $staged = git diff --cached --name-only
     $hit = $false

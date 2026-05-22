@@ -20,7 +20,10 @@ if "%~1"=="" (
 )
 
 echo [safe-install] running: %*
-%*
+REM Use `call` so control returns here when the target is another .bat/.cmd
+REM (e.g. pip.cmd, npm.cmd). Without `call`, CMD chains into the target script
+REM and never executes the post-install audit below.
+call %*
 set install_code=%errorlevel%
 
 if not "%install_code%"=="0" (
@@ -44,17 +47,26 @@ echo [safe-install] auditing project after install...
 %PY% "%PROJECT_SCRIPT%" --root "%REPO_ROOT%"
 set audit_code=%errorlevel%
 
-if %audit_code% GEQ 2 (
+REM detect_compromise.py exit codes:
+REM   0 = clean, 1 = warnings only, 2 = alerts (compromise findings),
+REM   3+ = operational error (root not a dir, SARIF write failure, etc.).
+REM Treat only exit 2 as a compromise alert. Tool errors get their own message
+REM so users don't think their machine is compromised when the scanner crashed.
+if "%audit_code%"=="2" (
     echo [safe-install] AUDIT FOUND ALERTS - review immediately 1>&2
     echo Recommended next steps: 1>&2
     echo   1. Do NOT run anything in this venv/node_modules 1>&2
     echo   2. Check docs\security\IOC_DETECTION_CHECKLIST.md 1>&2
     echo   3. Run /hulud-kit quick for a full machine scan 1>&2
-    exit /b %audit_code%
+    exit /b 2
 )
-if %audit_code%==1 (
+if "%audit_code%"=="1" (
     echo [safe-install] audit has warnings ^(install completed^) 1>&2
     exit /b 0
+)
+if not "%audit_code%"=="0" (
+    echo [safe-install] audit script failed to run ^(exit %audit_code%^) - install completed but compromise status unknown 1>&2
+    exit /b %audit_code%
 )
 echo [safe-install] install + audit clean
 exit /b 0

@@ -49,15 +49,23 @@ echo -e "${YELLOW}[safe-install] auditing project after install...${RESET}"
 "$PY" "$PROJECT_SCRIPT" --root "$REPO_ROOT"
 audit_code=$?
 
-if [[ $audit_code -ge 2 ]]; then
+# detect_compromise.py exit codes:
+#   0 = clean, 1 = warnings only, 2 = alerts (compromise findings),
+#   3+ = operational error (root not a dir, SARIF write failure, etc.).
+# Treat only exit 2 as a compromise alert. Tool errors get their own message
+# so users don't think their machine is compromised when the scanner crashed.
+if [[ $audit_code -eq 2 ]]; then
     echo -e "${RED}[safe-install] AUDIT FOUND ALERTS — review immediately${RESET}" >&2
     echo "Recommended next steps:" >&2
     echo "  1. Do NOT run anything in this venv/node_modules" >&2
     echo "  2. Check docs/security/IOC_DETECTION_CHECKLIST.md" >&2
     echo "  3. Run '/hulud-kit quick' for a full machine scan" >&2
-    exit $audit_code
+    exit 2
 elif [[ $audit_code -eq 1 ]]; then
     echo -e "${YELLOW}[safe-install] audit has warnings (install completed)${RESET}" >&2
+elif [[ $audit_code -ne 0 ]]; then
+    echo -e "${RED}[safe-install] audit script failed to run (exit $audit_code) — install completed but compromise status unknown${RESET}" >&2
+    exit $audit_code
 else
     echo -e "${GREEN}[safe-install] install + audit clean${RESET}"
 fi

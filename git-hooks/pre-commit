@@ -32,7 +32,7 @@ FAILED=0
 # Supply chain risk only materializes when dep manifests change. If this commit
 # touches only source code, the scan adds no signal and ~45s of latency.
 # Override: SHAI_HULUD_FORCE=1 to always scan.
-DEP_PATTERN='(^|/)(requirements[^/]*\.txt|package(-lock)?\.json|pnpm-lock\.yaml|yarn\.lock|pyproject\.toml|Pipfile(\.lock)?|poetry\.lock|uv\.lock|\.pth|\.github/workflows/.*\.ya?ml|\.claude/.*\.(js|mjs|json))$'
+DEP_PATTERN='(^|/)(requirements[^/]*\.txt|package(-lock)?\.json|pnpm-lock\.yaml|yarn\.lock|pyproject\.toml|Pipfile(\.lock)?|poetry\.lock|uv\.lock|[^/]*\.pth|\.github/workflows/.*\.ya?ml|\.claude/.*\.(js|mjs|json))$'
 if [[ "${SHAI_HULUD_FORCE:-0}" != "1" ]]; then
     if ! git diff --cached --name-only | grep -Eq "$DEP_PATTERN"; then
         echo -e "${GREEN}[pre-commit] no dep/workflow changes — skipping supply chain audit${RESET}" >&2
